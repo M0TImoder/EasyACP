@@ -1,0 +1,9 @@
+[alias]
+  easyacp = "!f() { \
+    if [ $# -eq 0 ]; then \
+      echo 'Usage: git easyacp \"commit message\"' >&2; \
+      exit 1; \
+    fi; \
+    git add . && git commit -m \"$*\" && git push; \
+  }; f"
+  
