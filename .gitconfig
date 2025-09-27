@@ -1,9 +1,43 @@
 [alias]
   easyacp = "!f() { \
+    mode='name-only'; \
+    while [ $# -gt 0 ]; do \
+      case \"$1\" in \
+        -fd|-fulldiff) \
+          mode='full'; \
+          shift; \
+          ;; \
+        --) \
+          shift; \
+          break; \
+          ;; \
+        *) \
+          break; \
+          ;; \
+      esac; \
+    done; \
     if [ $# -eq 0 ]; then \
-      echo 'Usage: git easyacp \"commit message\"' >&2; \
+      echo 'Usage: git easyacp [-fd|-fulldiff] \"commit message\"' >&2; \
       exit 1; \
     fi; \
-    git add . && git commit -m \"$*\" && git push; \
+    commit_msg=\"$*\"; \
+    git add . || exit $?; \
+    if [ \"$mode\" = 'full' ]; then \
+      git diff --cached; \
+    else \
+      git diff --cached --name-only; \
+    fi; \
+    printf 'Push these changes? [Y/n]: '; \
+    read -r ans; \
+    case \"$ans\" in \
+      ''|[Yy]*) \
+        ;; \
+      *) \
+        echo 'Push cancelled.'; \
+        exit 0; \
+        ;; \
+    esac; \
+    git commit -m \"$commit_msg\" || exit $?; \
+    git push; \
   }; f"
   
