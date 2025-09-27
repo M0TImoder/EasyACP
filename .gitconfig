@@ -1,10 +1,27 @@
 [alias]
   easyacp = "!f() { \
     mode='name-only'; \
+    do_rebase=0; \
+    stash_created=0; \
+    stash_applied=0; \
+    stash_ref='stash^{/easyacp-auto}'; \
+    cleanup() { \
+      if [ \"$stash_created\" -eq 1 ]; then \
+        if [ \"$stash_applied\" -eq 0 ]; then \
+          git stash apply \"$stash_ref\" >/dev/null 2>&1; \
+          stash_applied=1; \
+        fi; \
+        git stash drop \"$stash_ref\" >/dev/null 2>&1; \
+      fi; \
+    }; \
     while [ $# -gt 0 ]; do \
       case \"$1\" in \
         -fd|-fulldiff) \
           mode='full'; \
+          shift; \
+          ;; \
+        -rebase) \
+          do_rebase=1; \
           shift; \
           ;; \
         --) \
@@ -17,11 +34,86 @@
       esac; \
     done; \
     if [ $# -eq 0 ]; then \
-      echo 'Usage: git easyacp [-fd|-fulldiff] \"commit message\"' >&2; \
+      echo 'Usage: git easyacp [-fd|-fulldiff] [-rebase] \"commit message\"' >&2; \
       exit 1; \
     fi; \
     commit_msg=\"$*\"; \
-    git add . || exit $?; \
+    stash_output=$(git stash push -k -u -m easyacp-auto 2>&1); \
+    stash_status=$?; \
+    if [ $stash_status -ne 0 ]; then \
+      printf '%s\\n' \"$stash_output\" >&2; \
+      exit $stash_status; \
+    fi; \
+    if ! printf '%s' \"$stash_output\" | grep -q 'No local changes to save'; then \
+      stash_created=1; \
+      trap cleanup EXIT; \
+    fi; \
+    if ! git fetch --all --prune --tags; then \
+      trap - EXIT; \
+      cleanup; \
+      exit 1; \
+    fi; \
+    if ! git rev-list --left-right --count @{u}...HEAD; then \
+      trap - EXIT; \
+      cleanup; \
+      exit 1; \
+    fi; \
+    if [ \"$do_rebase\" -eq 1 ]; then \
+      if ! git pull --rebase --autostash --ff-only; then \
+        echo 'Fast-forward pull with rebase/autostash failed.' >&2; \
+        while :; do \
+          printf 'Choose how to continue: [r]ebase / [m]erge / [a]bort: '; \
+          read -r pull_choice; \
+          case \"$pull_choice\" in \
+            [Rr]) \
+              if git pull --rebase --autostash; then \
+                break; \
+              else \
+                echo 'Rebase pull failed.' >&2; \
+                trap - EXIT; \
+                cleanup; \
+                exit 1; \
+              fi; \
+              ;; \
+            [Mm]) \
+              if git pull --autostash; then \
+                break; \
+              else \
+                echo 'Merge pull failed.' >&2; \
+                trap - EXIT; \
+                cleanup; \
+                exit 1; \
+              fi; \
+              ;; \
+            [Aa]|'') \
+              echo 'Pull aborted.'; \
+              trap - EXIT; \
+              cleanup; \
+              exit 1; \
+              ;; \
+            *) \
+              echo 'Please enter r, m, or a.'; \
+              ;; \
+          esac; \
+        done; \
+      fi; \
+    else \
+      if ! git pull --ff-only; then \
+        trap - EXIT; \
+        cleanup; \
+        exit 1; \
+      fi; \
+    fi; \
+    if [ \"$stash_created\" -eq 1 ] && [ \"$stash_applied\" -eq 0 ]; then \
+      if git stash apply \"$stash_ref\" >/dev/null 2>&1; then \
+        stash_applied=1; \
+      else \
+        trap - EXIT; \
+        cleanup; \
+        exit 1; \
+      fi; \
+    fi; \
+    git add . || { trap - EXIT; cleanup; exit $?; }; \
     if [ \"$mode\" = 'full' ]; then \
       git diff --cached; \
     else \
@@ -34,10 +126,14 @@
         ;; \
       *) \
         echo 'Push cancelled.'; \
+        trap - EXIT; \
+        cleanup; \
         exit 0; \
         ;; \
     esac; \
-    git commit -m \"$commit_msg\" || exit $?; \
+    git commit -m \"$commit_msg\" || { trap - EXIT; cleanup; exit $?; }; \
     git push; \
+    trap - EXIT; \
+    cleanup; \
   }; f"
   
