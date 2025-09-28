@@ -13,6 +13,18 @@
     message_provided=0; \
     prev_head=''; \
     template_path=\"$HOME/.gitmessage\"; \
+    print_usage() { \
+      echo 'Usage: git easyacp [options] "commit message"'; \
+      echo 'Options:'; \
+      echo '  -fd | -fulldiff     Show full diff instead of names'; \
+      echo '  -rebase             Pull with rebase/autostash'; \
+      echo '  -p                  Patch-based staging'; \
+      echo '  -s                  GPG sign'; \
+      echo '  -so | --signoff     Add Signed-off-by line'; \
+      echo '  -t                  Use commit template'; \
+      echo '  -v | -vim           Use editor for commit'; \
+      echo '  -h | -help | --help Show this message and exit'; \
+    }; \
     cleanup() { \
       if [ \"$stash_created\" -eq 1 ]; then \
         if [ \"$stash_applied\" -eq 0 ]; then \
@@ -24,6 +36,10 @@
     }; \
     while [ $# -gt 0 ]; do \
       case \"$1\" in \
+        -h|-help|--help) \
+          print_usage; \
+          exit 0; \
+          ;; \
         -fd|-fulldiff) \
           mode='full'; \
           shift; \
@@ -71,7 +87,7 @@
       commit_msg=''; \
     else \
       if [ $# -eq 0 ]; then \
-        echo 'Usage: git easyacp [-fd|-fulldiff] [-rebase] [-p] [-s|-sign] [-so|--signoff|-signoff] [-t] [-v|-vim] \"commit message\"' >&2; \
+        print_usage >&2; \
         exit 1; \
       fi; \
       commit_msg=\"$@\"; \
