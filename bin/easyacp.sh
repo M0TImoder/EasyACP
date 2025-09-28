@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# 既定のトグルとワークフロー用フラグ
 mode='name-only'
 add_mode='all'
 do_rebase=0
@@ -23,7 +24,7 @@ prev_head=''
 trap_set=0
 template_path="$HOME/.gitmessage"
 
-# --- color configuration -------------------------------------------------
+# 端末のカラー対応を判定
 
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
   color_count=$(tput colors 2>/dev/null || printf '0')
@@ -51,39 +52,45 @@ else
   CYAN=''
 fi
 
+# 情報表示用ヘルパー
 info() {
   printf '%b%s%b\n' "${CYAN}${BOLD}" "$1" "$RESET"
 }
 
+# 成功メッセージ用ヘルパー
 success() {
   printf '%b%s%b\n' "${GREEN}${BOLD}" "$1" "$RESET"
 }
 
+# 警告メッセージ用ヘルパー
 warn() {
   printf '%b%s%b\n' "${YELLOW}${BOLD}" "$1" "$RESET" >&2
 }
 
+# エラーメッセージ用ヘルパー
 error() {
   printf '%b%s%b\n' "${RED}${BOLD}" "$1" "$RESET" >&2
 }
 
+# ヘルプメッセージ出力
 print_usage() {
   cat <<'USAGE'
-Usage: git easyacp [options] "commit message"
-Options:
-  -fd | -fulldiff     Show full diff instead of names
-  -rebase             Pull with rebase/autostash
-  -p                  Patch-based staging
-  -s                  GPG sign
-  -so | --signoff     Add Signed-off-by line
-  -t                  Use commit template
-  -v | -vim           Use editor for commit
-  -f                  Force push with --force-with-lease
-  -gc                 Run git gc --auto and git maintenance run --auto after push
-  -h | -help | --help Show this message and exit
+使い方: git easyacp [オプション] "commit message"
+利用可能なオプション:
+  -fd | -fulldiff     ファイル名ではなく差分全文を表示
+  -rebase             rebase/autostash付きで pull を試行
+  -p                  git add -p でインタラクティブにステージ
+  -s                  git commit --gpg-sign を付与
+  -so | --signoff     git commit --signoff を付与
+  -t                  コミットテンプレートを使用 (-t ~/.gitmessage --verbose)
+  -v | -vim           エディタでコミットメッセージを編集
+  -f                  push に --force-with-lease を付与
+  -gc                 push 後に git gc --auto と git maintenance run --auto を実行
+  -h | -help | --help このメッセージを表示して終了
 USAGE
 }
 
+# 一時的な stash を戻して削除
 cleanup() {
   if [ "$stash_created" -eq 1 ]; then
     if [ "$stash_applied" -eq 0 ]; then
@@ -95,6 +102,7 @@ cleanup() {
   fi
 }
 
+# 終了時の共通処理
 safe_exit() {
   local status=$1
   if [ $trap_set -eq 1 ]; then
@@ -104,6 +112,7 @@ safe_exit() {
   exit $status
 }
 
+# 前後の空白を削除
 trim_spaces() {
   local value="$1"
   value="${value#${value%%[![:space:]]*}}"
@@ -111,6 +120,7 @@ trim_spaces() {
   printf '%s' "$value"
 }
 
+# 対話的なYes/No確認
 prompt_confirm() {
   local prompt="$1"
   local default_yes=${2:-1}
@@ -140,12 +150,13 @@ prompt_confirm() {
         return 1
         ;;
       *)
-        warn 'Please answer with y or n.'
+        warn 'y か n で入力してください。'
         ;;
     esac
   done
 }
 
+# 設定値による確認プロンプトの制御
 confirm_decision() {
   local flag=$1
   local default_yes=$2
@@ -167,6 +178,7 @@ confirm_decision() {
   fi
 }
 
+# エイリアスから渡される引数の重複を除去
 dedupe_alias_args() {
   local args=("$@")
   local total=${#args[@]}
@@ -184,13 +196,16 @@ dedupe_alias_args() {
   DEDUPED_ARGS=("${args[@]}")
 }
 
+# エイリアス経由の重複呼び出しに対応
 dedupe_alias_args "$@"
+# 重複除去後の引数を再設定
 if [ ${#DEDUPED_ARGS[@]} -gt 0 ]; then
   set -- "${DEDUPED_ARGS[@]}"
 else
   set --
 fi
 
+# コマンドラインオプションの解析
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|-help|--help)
@@ -247,7 +262,7 @@ while [ $# -gt 0 ]; do
       break
       ;;
     -*)
-      warn "Unknown option '$1'."
+      warn "不明なオプション '$1' です。"
       print_usage >&2
       safe_exit 1
       ;;
@@ -257,13 +272,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# コミットメッセージ引数の有無を記録
 if [ $# -gt 0 ]; then
   message_provided=1
 fi
 
+# コミットメッセージの組み立てまたはエディタへの引き継ぎ
 if [ "$use_editor" -eq 1 ]; then
   if [ "$message_provided" -eq 1 ]; then
-    warn 'Discarding provided commit message because -v/-vim was specified; the editor will be opened.'
+    warn '-v/-vim が指定されたため、渡されたコミットメッセージは破棄されエディタが起動します。'
   fi
   commit_msg=''
 else
@@ -274,54 +291,62 @@ else
   commit_msg="$@"
 fi
 
+# 作業ツリーの変更をstashへ退避
 stash_output=$(git stash push -k -u -m easyacp-auto 2>&1)
+# stashに失敗した場合は中断
 stash_status=$?
 if [ $stash_status -ne 0 ]; then
   error "$stash_output"
   safe_exit $stash_status
 fi
 
+# 一時stashの管理
 if ! printf '%s' "$stash_output" | grep -q 'No local changes to save'; then
   stash_created=1
   trap cleanup EXIT
   trap_set=1
 fi
 
+# リモート参照を同期
 if ! git fetch --all --prune --tags; then
-  error 'git fetch --all --prune --tags failed.'
+  error 'git fetch --all --prune --tags に失敗しました。'
   safe_exit 1
 fi
 
+# upstream ブランチの設定を検証
 if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
-  error 'No upstream tracking branch is configured. Please set an upstream (e.g., git branch --set-upstream-to) before running easyacp.'
+  error 'upstream の追跡ブランチが設定されていません。git branch --set-upstream-to などで設定してから再実行してください。'
   safe_exit 1
 fi
 
 divergence_output=$(git rev-list --left-right --count @{u}...HEAD 2>/dev/null)
 if [ $? -ne 0 ]; then
-  error 'Unable to determine divergence from upstream.'
+  error 'upstream との差分を取得できませんでした。'
   safe_exit 1
 fi
 
+# 差分件数を分解
 IFS=$'\t' read -r upstream_only local_only <<EOF
 $divergence_output
 EOF
 
-info "Commits only on upstream: ${upstream_only:-0}"
-info "Commits only on local HEAD: ${local_only:-0}"
+# 差分件数を表示
+info "upstream のみのコミット数: ${upstream_only:-0}"
+info "ローカルのみのコミット数: ${local_only:-0}"
 
 if [ "$do_rebase" -eq 1 ]; then
   if ! git pull --rebase --autostash --ff-only; then
-    error 'Fast-forward pull with rebase/autostash failed.'
+    error 'rebase/autostash 付きの fast-forward pull に失敗しました。'
+# pull 時の対応を選択
     while :; do
-      printf '%bChoose how to continue: [r]ebase / [m]erge / [a]bort:%b ' "${BLUE}${BOLD}" "$RESET"
+      printf '%b続行方法を選択してください: [r]ebase / [m]erge / [a]bort:%b ' "${BLUE}${BOLD}" "$RESET"
       read -r pull_choice
       case "$pull_choice" in
         [Rr])
           if git pull --rebase --autostash; then
             break
           else
-            error 'Rebase pull failed.'
+            error 'rebase pull に失敗しました。'
             safe_exit 1
           fi
           ;;
@@ -329,23 +354,24 @@ if [ "$do_rebase" -eq 1 ]; then
           if git pull --autostash; then
             break
           else
-            error 'Merge pull failed.'
+            error 'merge pull に失敗しました。'
             safe_exit 1
           fi
           ;;
         [Aa]|'')
-          warn 'Pull aborted.'
+          warn 'pull を中止しました。'
           safe_exit 1
           ;;
         *)
-          warn 'Please enter r, m, or a.'
+          warn 'r / m / a のいずれかを入力してください。'
           ;;
       esac
     done
   fi
 else
+  # 既定では通常の fast-forward pull
   if ! git pull --ff-only; then
-    error 'Fast-forward pull failed.'
+    error 'fast-forward pull に失敗しました。'
     safe_exit 1
   fi
 fi
@@ -354,54 +380,60 @@ if [ "$stash_created" -eq 1 ] && [ "$stash_applied" -eq 0 ]; then
   if git stash apply "$stash_ref" >/dev/null 2>&1; then
     stash_applied=1
   else
-    error 'Failed to reapply stashed changes.'
+    error 'stash に退避した変更を戻せませんでした。'
     safe_exit 1
   fi
 fi
 
 if ! git status -sb; then
-  error 'git status -sb failed.'
+  error 'git status -sb が失敗しました。'
   safe_exit 1
 fi
 
+# 未ステージの差分を検出
 git diff --quiet
 diff_status=$?
 if [ $diff_status -ne 0 ] && [ $diff_status -ne 1 ]; then
   safe_exit $diff_status
 fi
 
+# ステージ済みの差分を検出
 git diff --cached --quiet
 cached_status=$?
 if [ $cached_status -ne 0 ] && [ $cached_status -ne 1 ]; then
   safe_exit $cached_status
 fi
 
+# 変更が無ければ早期終了
 if [ $diff_status -eq 0 ] && [ $cached_status -eq 0 ]; then
-  success 'No changes to commit.'
+  success 'コミットする変更はありません。'
   safe_exit 0
 fi
 
+# 未ステージの変更を表示
 if [ "$mode" = 'full' ]; then
   if [ $diff_status -eq 1 ]; then
-    info 'Working tree changes:'
+    info '作業ツリーの変更:'
     git diff
   else
-    info 'No unstaged changes detected.'
+    info '未ステージの変更はありません。'
   fi
 else
   if [ $diff_status -eq 1 ]; then
-    info 'Files with unstaged changes:'
+    info '未ステージの変更があるファイル:'
     git diff --name-only
   else
-    info 'No unstaged files detected.'
+    info '未ステージのファイルはありません。'
   fi
 fi
 
-if ! confirm_decision "$confirm_stage_prompt" 1 'Stage changes before continuing?'; then
-  warn 'Operation cancelled.'
+# ステージング前に確認
+if ! confirm_decision "$confirm_stage_prompt" 1 'ステージングを実行して続行しますか？'; then
+  warn '処理を中止しました。'
   safe_exit 0
 fi
 
+# 選択した方法でステージング
 if [ "$add_mode" = 'patch' ]; then
   if ! git add -p; then
     status=$?
@@ -414,27 +446,32 @@ else
   fi
 fi
 
+# ステージ済みの差分概要を表示
 if [ "$mode" = 'full' ]; then
-  info 'Staged changes:'
+  info 'ステージ済みの変更:'
   git diff --cached
 else
-  info 'Staged file list:'
+  info 'ステージ済みのファイル一覧:'
   git diff --cached --name-only
 fi
 
-if ! confirm_decision "$confirm_post_stage_prompt" 1 'Continue with these staged changes?'; then
-  warn 'Operation cancelled after staging.'
+# コミット前にステージ内容を確認
+if ! confirm_decision "$confirm_post_stage_prompt" 1 'このステージ内容で続行しますか？'; then
+  warn 'ステージング後の処理を中止しました。'
   safe_exit 0
 fi
 
+# タグ入力用の配列を初期化
 tag_list=()
 
-if confirm_decision "$confirm_tag_prompt" 1 'Add tags to this commit before pushing?'; then
-  printf '%bEnter tags separated by commas (e.g., tag1, tag2):%b ' "${BLUE}${BOLD}" "$RESET"
+if confirm_decision "$confirm_tag_prompt" 1 'プッシュ前にタグを追加しますか？'; then
+  printf '%bカンマ区切りでタグ名を入力してください (例: tag1, tag2):%b ' "${BLUE}${BOLD}" "$RESET"
   IFS= read -r raw_tags
   if [ -n "$raw_tags" ]; then
+    # カンマで区切られたタグを分解
     IFS=',' read -r -a split_tags <<<"$raw_tags"
     for raw_tag in "${split_tags[@]}"; do
+      # 各タグの前後の空白を除去
       trimmed=$(trim_spaces "$raw_tag")
       if [ -n "$trimmed" ]; then
         tag_list+=("$trimmed")
@@ -442,25 +479,30 @@ if confirm_decision "$confirm_tag_prompt" 1 'Add tags to this commit before push
     done
   fi
 fi
+# 整形済みタグの件数
 tag_count=${#tag_list[@]}
 
+# コミットメッセージの確認
 if [ "$use_editor" -eq 0 ]; then
-  info 'Commit message preview:'
+  info 'コミットメッセージのプレビュー:'
   printf '%s\n' "$commit_msg"
 else
-  info 'Commit message will be edited interactively.'
+  info 'コミットメッセージはエディタで編集します。'
 fi
 
-if ! confirm_decision "$confirm_commit_prompt" 1 'Proceed with commit?'; then
-  warn 'Commit cancelled.'
+# コミット実行の確認
+if ! confirm_decision "$confirm_commit_prompt" 1 'コミットを実行しますか？'; then
+  warn 'コミットを中止しました。'
   safe_exit 0
 fi
 
+# 差分表示のために直前の HEAD を控える
 prev_head=$(git rev-parse HEAD 2>/dev/null)
 if [ $? -ne 0 ]; then
   prev_head=''
 fi
 
+# git commit コマンドを構築
 set -- git commit
 if [ "$gpg_sign" -eq 1 ]; then
   set -- "$@" --gpg-sign
@@ -480,55 +522,63 @@ fi
   safe_exit $status
 }
 
+# タグを自動メッセージ付きで作成
 if [ $tag_count -gt 0 ]; then
+  # 最新コミットサマリをタグメッセージとして利用
   commit_subject=$(git log -1 --pretty=%s 2>/dev/null)
   for tag_name in "${tag_list[@]}"; do
     tag_message="$commit_subject"
     if [ -z "$tag_message" ]; then
-      tag_message="Tag $tag_name created by easyacp"
+      tag_message="easyacp によって作成されたタグ $tag_name"
     fi
     if ! git tag -m "$tag_message" "$tag_name"; then
-      error "Failed to create tag '$tag_name'."
+      error "タグ '$tag_name' の作成に失敗しました。"
       safe_exit 1
     fi
   done
 fi
 
+# プッシュ前の差分比較対象を決定
 if [ -n "$prev_head" ]; then
   push_diff_target="$prev_head"
 else
   push_diff_target=$(git hash-object -t tree /dev/null)
 fi
 
+# プッシュ前にコミット差分を表示
 if [ "$mode" = 'full' ]; then
-  info 'Diff of new commit against previous HEAD:'
+  info '直前の HEAD との差分:'
   git diff --cached "$push_diff_target"
 else
-  info 'Files changed in new commit:'
+  info '今回のコミットで変更されたファイル:'
   git diff --cached --name-only "$push_diff_target"
 fi
 
-if ! confirm_decision "$confirm_push_prompt" 1 'Push the new commit to the remote?'; then
-  warn 'Push cancelled.'
+# プッシュ前の最終確認
+if ! confirm_decision "$confirm_push_prompt" 1 'このコミットをリモートへプッシュしますか？'; then
+  warn 'プッシュを中止しました。'
   safe_exit 0
 fi
 
+# プッシュ前に origin を同期
 if ! git fetch origin --prune --tags; then
-  error 'Failed to fetch from origin before push.'
+  error 'プッシュ前の git fetch origin --prune --tags に失敗しました。'
   safe_exit 1
 fi
 
+# ローカルブランチが最新か確認
 if ! git pull --rebase --autostash --ff-only; then
-  error 'Fast-forward pull with rebase/autostash before push failed.'
+  error 'プッシュ前の rebase/autostash 付き fast-forward pull に失敗しました。'
+# プッシュ前の同期方法を選択
   while :; do
-    printf '%bChoose how to continue: [r]ebase / [m]erge / [a]bort:%b ' "${BLUE}${BOLD}" "$RESET"
+    printf '%b続行方法を選択してください: [r]ebase / [m]erge / [a]bort:%b ' "${BLUE}${BOLD}" "$RESET"
     read -r push_pull_choice
     case "$push_pull_choice" in
       [Rr])
         if git pull --rebase --autostash; then
           break
         else
-          error 'Rebase pull failed.'
+          error 'rebase pull に失敗しました。'
           safe_exit 1
         fi
         ;;
@@ -536,50 +586,57 @@ if ! git pull --rebase --autostash --ff-only; then
         if git pull --autostash; then
           break
         else
-          error 'Merge pull failed.'
+          error 'merge pull に失敗しました。'
           safe_exit 1
         fi
         ;;
       [Aa]|'')
-        warn 'Pull aborted.'
+        warn 'pull を中止しました。'
         safe_exit 1
         ;;
       *)
-        warn 'Please enter r, m, or a.'
+        warn 'r / m / a のいずれかを入力してください。'
         ;;
     esac
   done
 fi
 
+# push コマンドを組み立て
 push_cmd=(git push)
+# -f 指定時は --force-with-lease を追加
 if [ $force_push -eq 1 ]; then
   push_cmd+=(--force-with-lease)
 fi
+# push 実行と失敗時の処理
 if ! "${push_cmd[@]}"; then
-  error 'git push failed.'
+  error 'git push に失敗しました。'
   safe_exit 1
 fi
 
+# コミット後にタグを同期
 if ! git push --tags; then
-  error 'git push --tags failed.'
+  error 'git push --tags に失敗しました。'
   safe_exit 1
 fi
 
+# オプションのメンテナンス実行
 if [ $run_gc -eq 1 ]; then
-  info 'Running repository maintenance (git gc --auto)...'
+  info 'リポジトリのメンテナンスを実行中 (git gc --auto)...'
   if ! git gc --auto; then
-    error 'git gc --auto failed.'
+    error 'git gc --auto に失敗しました。'
     safe_exit 1
   fi
-  info 'Running repository maintenance (git maintenance run --auto)...'
+  info 'リポジトリのメンテナンスを実行中 (git maintenance run --auto)...'
   if ! git maintenance run --auto; then
-    error 'git maintenance run --auto failed.'
+    error 'git maintenance run --auto に失敗しました。'
     safe_exit 1
   fi
 fi
 
+# trap を解除して stash を整理
 if [ $trap_set -eq 1 ]; then
   trap - EXIT
 fi
 cleanup
-success 'Workflow completed successfully.'
+# 最終メッセージ
+success '一連の処理が完了しました。'
