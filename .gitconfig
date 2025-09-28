@@ -1,10 +1,18 @@
 [alias]
   easyacp = "!f() { \
     mode='name-only'; \
+    add_mode='all'; \
     do_rebase=0; \
     stash_created=0; \
     stash_applied=0; \
     stash_ref='stash^{/easyacp-auto}'; \
+    use_template=0; \
+    use_editor=0; \
+    gpg_sign=0; \
+    signoff=0; \
+    message_provided=0; \
+    prev_head=''; \
+    template_path=\"$HOME/.gitmessage\"; \
     cleanup() { \
       if [ \"$stash_created\" -eq 1 ]; then \
         if [ \"$stash_applied\" -eq 0 ]; then \
@@ -20,8 +28,28 @@
           mode='full'; \
           shift; \
           ;; \
+        -s|-sign) \
+          gpg_sign=1; \
+          shift; \
+          ;; \
+        -so|-signoff|--signoff) \
+          signoff=1; \
+          shift; \
+          ;; \
+        -t) \
+          use_template=1; \
+          shift; \
+          ;; \
         -rebase) \
           do_rebase=1; \
+          shift; \
+          ;; \
+        -p) \
+          add_mode='patch'; \
+          shift; \
+          ;; \
+        -v|-vim) \
+          use_editor=1; \
           shift; \
           ;; \
         --) \
@@ -33,11 +61,21 @@
           ;; \
       esac; \
     done; \
-    if [ $# -eq 0 ]; then \
-      echo 'Usage: git easyacp [-fd|-fulldiff] [-rebase] \"commit message\"' >&2; \
-      exit 1; \
+    if [ $# -gt 0 ]; then \
+      message_provided=1; \
     fi; \
-    commit_msg=\"$*\"; \
+    if [ \"$use_editor\" -eq 1 ]; then \
+      if [ \"$message_provided\" -eq 1 ]; then \
+        echo 'Discarding provided commit message because -v/-vim was specified; the editor will be opened.' >&2; \
+      fi; \
+      commit_msg=''; \
+    else \
+      if [ $# -eq 0 ]; then \
+        echo 'Usage: git easyacp [-fd|-fulldiff] [-rebase] [-p] [-s|-sign] [-so|--signoff|-signoff] [-t] [-v|-vim] \"commit message\"' >&2; \
+        exit 1; \
+      fi; \
+      commit_msg=\"$@\"; \
+    fi; \
     stash_output=$(git stash push -k -u -m easyacp-auto 2>&1); \
     stash_status=$?; \
     if [ $stash_status -ne 0 ]; then \
@@ -49,6 +87,12 @@
       trap cleanup EXIT; \
     fi; \
     if ! git fetch --all --prune --tags; then \
+      trap - EXIT; \
+      cleanup; \
+      exit 1; \
+    fi; \
+    if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then \
+      echo 'No upstream tracking branch is configured. Please set an upstream (e.g., git branch --set-upstream-to) before running easyacp.' >&2; \
       trap - EXIT; \
       cleanup; \
       exit 1; \
@@ -113,15 +157,107 @@
         exit 1; \
       fi; \
     fi; \
-    git add . || { trap - EXIT; cleanup; exit $?; }; \
+    if ! git status -sb; then \
+      trap - EXIT; \
+      cleanup; \
+      exit 1; \
+    fi; \
+    git diff --quiet; \
+    diff_status=$?; \
+    if [ $diff_status -ne 0 ] && [ $diff_status -ne 1 ]; then \
+      trap - EXIT; \
+      cleanup; \
+      exit $diff_status; \
+    fi; \
+    git diff --cached --quiet; \
+    cached_status=$?; \
+    if [ $cached_status -ne 0 ] && [ $cached_status -ne 1 ]; then \
+      trap - EXIT; \
+      cleanup; \
+      exit $cached_status; \
+    fi; \
+    if [ $diff_status -eq 0 ] && [ $cached_status -eq 0 ]; then \
+      echo 'No changes to commit.'; \
+      trap - EXIT; \
+      cleanup; \
+      exit 0; \
+    fi; \
     if [ \"$mode\" = 'full' ]; then \
       git diff --cached; \
     else \
       git diff --cached --name-only; \
     fi; \
-    printf 'Push these changes? [Y/n]: '; \
+    printf 'Stage changes and continue to commit/push? [Y/n]: '; \
     read -r ans; \
     case \"$ans\" in \
+      ''|[Yy]*) \
+        ;; \
+      *) \
+        echo 'Operation cancelled.'; \
+        trap - EXIT; \
+        cleanup; \
+        exit 0; \
+        ;; \
+    esac; \
+    if [ \"$add_mode\" = 'patch' ]; then \
+      git add -p || { trap - EXIT; cleanup; exit $?; }; \
+    else \
+      git add -A || { trap - EXIT; cleanup; exit $?; }; \
+    fi; \
+    if [ \"$mode\" = 'full' ]; then \
+      git diff --cached; \
+    else \
+      git diff --cached --name-only; \
+    fi; \
+    if [ \"$use_editor\" -eq 0 ]; then \
+      echo 'Commit message preview:'; \
+      printf '%s\\n' \"$commit_msg\"; \
+    else \
+      echo 'Commit message will be edited interactively.'; \
+    fi; \
+    printf 'Proceed with commit? [Y/n]: '; \
+    read -r commit_ans; \
+    case \"$commit_ans\" in \
+      ''|[Yy]*) \
+        ;; \
+      *) \
+        echo 'Commit cancelled.'; \
+        trap - EXIT; \
+        cleanup; \
+        exit 0; \
+        ;; \
+    esac; \
+    prev_head=$(git rev-parse HEAD 2>/dev/null); \
+    if [ $? -ne 0 ]; then \
+      prev_head=''; \
+    fi; \
+    set -- git commit; \
+    if [ \"$gpg_sign\" -eq 1 ]; then \
+      set -- \"$@\" --gpg-sign; \
+    fi; \
+    if [ \"$signoff\" -eq 1 ]; then \
+      set -- \"$@\" --signoff; \
+    fi; \
+    if [ \"$use_template\" -eq 1 ]; then \
+      set -- \"$@\" -t \"$template_path\" --verbose; \
+    fi; \
+    if [ \"$use_editor\" -eq 0 ]; then \
+      set -- \"$@\" -m \"$commit_msg\"; \
+    fi; \
+    \"$@\" || { trap - EXIT; cleanup; exit $?; }; \
+    if [ -n \"$prev_head\" ]; then \
+      push_diff_target=\"$prev_head\"; \
+    else \
+      push_diff_target=$(git hash-object -t tree /dev/null); \
+    fi; \
+    if [ \"$mode\" = 'full' ]; then \
+      git diff --cached \"$push_diff_target\"; \
+    else \
+      git diff --cached --name-only \"$push_diff_target\"; \
+    fi; \
+    printf 'Push the new commit to the remote? [Y/n]: '; \
+    read -r push_ans; \
+    case \"$push_ans\" in \
       ''|[Yy]*) \
         ;; \
       *) \
@@ -131,8 +267,12 @@
         exit 0; \
         ;; \
     esac; \
-    git commit -m \"$commit_msg\" || { trap - EXIT; cleanup; exit $?; }; \
-    git push; \
+    if ! git push; then \
+      echo 'git push failed.' >&2; \
+      trap - EXIT; \
+      cleanup; \
+      exit 1; \
+    fi; \
     trap - EXIT; \
     cleanup; \
   }; f"
