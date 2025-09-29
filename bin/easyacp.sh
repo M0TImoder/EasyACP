@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 実行時の状態を初期化
 initialize_state()
 {
 
@@ -38,141 +39,187 @@ initialize_state()
   REMAINING_ARGS=()
   tag_list=()
   log_verbose=0
-  progress_step=0
-  progress_drawn=0
-  progress_line_open=0
-}
-
-PROGRESS_TOTAL=12
-PROGRESS_WIDTH=30
-
-update_progress()
-{
-
-  progress_step=$((progress_step + 1))
-  if [ "${progress_step}" -gt "${PROGRESS_TOTAL}" ]; then
-    progress_step=${PROGRESS_TOTAL}
-  fi
-
-  local percent=$((progress_step * 100 / PROGRESS_TOTAL))
-  local filled=$((percent * PROGRESS_WIDTH / 100))
-  local bar=''
-  local index=0
-
-  while [ "${index}" -lt "${filled}" ]; do
-    bar="${bar}#"
-    index=$((index + 1))
-  done
-
-  while [ "${index}" -lt "${PROGRESS_WIDTH}" ]; do
-    bar="${bar}-"
-    index=$((index + 1))
-  done
-
-  if [ "${progress_drawn}" -eq 0 ]; then
-    echo -ne "Progress: [${bar}] ${percent}%"
-    progress_drawn=1
-  else
-    echo -ne "\rProgress: [${bar}] ${percent}%"
-  fi
-
-  progress_line_open=1
-
-  if [ "${progress_step}" -eq "${PROGRESS_TOTAL}" ]; then
-    echo ""
-    progress_line_open=0
-  fi
-}
-
-close_progress_line()
-{
-
-  if [ "${progress_line_open}" -eq 1 ]; then
-    echo ""
-    progress_line_open=0
-  fi
+  NUMSTAT_ENTRIES=()
 }
 
 log_info()
 {
 
-  close_progress_line
   echo "[INFO] $1"
+  print_blank_line
 }
 
 log_warn()
 {
 
-  close_progress_line
   echo "[WARN] $1"
+  print_blank_line
 }
 
 log_error()
 {
 
-  close_progress_line
   echo "[ERR] $1" >&2
+  print_blank_line
 }
 
 log_question()
 {
 
-  close_progress_line
-  echo -n "[QSTN] $1 "
+  echo "[QSTN] $1"
+  print_blank_line
 }
 
 log_ok()
 {
 
-  close_progress_line
   echo "[OK] $1"
+  print_blank_line
 }
 
-log_input()
+# 入力プロンプトを表示
+show_input_prompt()
 {
 
-  close_progress_line
-  echo ">>> $1"
+  echo -n '>>> '
 }
 
+# コマンド出力を整形して表示
 display_command_output()
 {
+
+  local allow_status_one=0
+  if [ "$1" = '--allow-status-one' ]; then
+    allow_status_one=1
+    shift
+  fi
 
   local prefix="$1"
   shift
 
-  close_progress_line
+  local status=0
 
   if [ "${log_verbose}" -eq 1 ]; then
     "$@"
-    local status=$?
-    if [ "${status}" -eq 1 ]; then
-      return 0
+    status=$?
+  else
+    local output
+    output=$("$@" 2>&1)
+    status=$?
+
+    if [ -n "${output}" ]; then
+      while IFS= read -r line; do
+        if [ -n "${prefix}" ]; then
+          echo "${prefix}${line}"
+        else
+          echo "${line}"
+        fi
+      done <<<"${output}"
     fi
-    return "${status}"
   fi
 
-  local output
-  output=$("$@" 2>&1)
-  local status=$?
-
-  if [ -n "${output}" ]; then
-    while IFS= read -r line; do
-      if [ -n "${prefix}" ]; then
-        echo "${prefix}${line}"
-      else
-        echo "${line}"
-      fi
-    done <<<"${output}"
-  fi
-
-  if [ "${status}" -eq 0 ] || [ "${status}" -eq 1 ]; then
+  if [ "${status}" -eq 0 ]; then
+    print_blank_line
     return 0
   fi
 
+  if [ "${status}" -eq 1 ] && [ "${allow_status_one}" -eq 1 ]; then
+    print_blank_line
+    return 0
+  fi
+
+  print_blank_line
   return "${status}"
 }
 
+# 表示系の汎用ヘルパー
+print_plain_line()
+{
+
+  if [ $# -eq 0 ]; then
+    echo ""
+  else
+    echo "$1"
+  fi
+}
+
+print_blank_line()
+{
+
+  print_plain_line
+}
+
+# ファイル一覧を番号付きで表示
+print_numbered_entries()
+{
+
+  local entries=("$@")
+  local index=1
+  local entry
+
+  for entry in "${entries[@]}"; do
+    print_plain_line "${index}. ${entry}"
+    index=$((index + 1))
+  done
+}
+
+# NUMSTAT の結果を保持
+NUMSTAT_ENTRIES=()
+
+# 複数行のテキストをそのまま出力
+print_multiline_text()
+{
+
+  echo "$1"
+}
+
+# git diff --numstat の結果を集計
+collect_numstat_entries()
+{
+
+  NUMSTAT_ENTRIES=()
+  local output
+
+  if ! output=$(git diff --numstat "$@" 2>&1); then
+    if [ -n "${output}" ]; then
+      log_error "${output}"
+    fi
+    return 1
+  fi
+
+  if [ -z "${output}" ]; then
+    return 0
+  fi
+
+  while IFS=$'\t' read -r added deleted path; do
+    if [ -z "${path}" ]; then
+      continue
+    fi
+    local counts=()
+    if [ "${added}" = '-' ] || [ "${deleted}" = '-' ]; then
+      counts+=("[binary]")
+    else
+      if [ "${added}" != '0' ]; then
+        counts+=("[+${added}]")
+      fi
+      if [ "${deleted}" != '0' ]; then
+        counts+=("[-${deleted}]")
+      fi
+      if [ ${#counts[@]} -eq 0 ]; then
+        counts+=("[±0]")
+      fi
+    fi
+    local entry="${path}"
+    if [ ${#counts[@]} -gt 0 ]; then
+      entry="${entry} ${counts[*]}"
+    fi
+    NUMSTAT_ENTRIES+=("${entry}")
+  done <<<"${output}"
+
+  return 0
+}
+
+# ヘルプ表示
 print_usage()
 {
 
@@ -191,13 +238,14 @@ print_usage()
   echo "  -h | -help | --help このメッセージを表示して終了"
 }
 
+# フロー案内をまとめて表示
 advance_with_info()
 {
 
-  update_progress
   log_info "$1"
 }
 
+# stash を片付ける
 cleanup()
 {
 
@@ -211,6 +259,7 @@ cleanup()
   fi
 }
 
+# 終了前の後始末
 safe_exit()
 {
 
@@ -222,6 +271,7 @@ safe_exit()
   exit "${status}"
 }
 
+# 文字列の前後空白を除去
 trim_spaces()
 {
 
@@ -231,6 +281,7 @@ trim_spaces()
   echo -n "${value}"
 }
 
+# Y/n 確認を共通化
 prompt_confirm()
 {
 
@@ -250,12 +301,14 @@ prompt_confirm()
   fi
 
   while :; do
+    print_blank_line
     log_question "${prompt}${suffix}"
+    show_input_prompt
     if ! read -r raw_reply; then
       reply=''
       raw_reply=''
     fi
-    log_input "${raw_reply}"
+    print_blank_line
     reply="${raw_reply}"
     if [ -z "${reply}" ]; then
       reply="${default_reply}"
@@ -276,6 +329,7 @@ prompt_confirm()
   done
 }
 
+# 設定値に応じて確認をスキップ
 confirm_decision()
 {
 
@@ -297,6 +351,7 @@ confirm_decision()
   return 1
 }
 
+# エイリアス由来の引数重複を除去
 dedupe_alias_args()
 {
 
@@ -316,6 +371,7 @@ dedupe_alias_args()
   DEDUPED_ARGS=("${args[@]}")
 }
 
+# コマンドライン引数を解析
 parse_arguments()
 {
 
@@ -398,6 +454,7 @@ parse_arguments()
   REMAINING_ARGS=("$@")
 }
 
+# コミットメッセージを組み立て
 prepare_commit_message()
 {
 
@@ -423,6 +480,7 @@ prepare_commit_message()
   fi
 }
 
+# 未コミット変更を退避
 create_stash()
 {
 
@@ -438,11 +496,12 @@ create_stash()
   fi
 }
 
+# 同期処理前の安全確認
 do_checks()
 {
 
   log_info 'リモートと同期中...'
-  if ! git fetch --all --prune --tags; then
+  if ! display_command_output '' git fetch --all --prune --tags; then
     log_error 'git fetch --all --prune --tags に失敗しました。'
     safe_exit 1
   fi
@@ -466,24 +525,26 @@ EOF
   log_info "ローカルのみのコミット数: ${local_only:-0}"
 
   if [ "${do_rebase}" -eq 1 ]; then
-    if ! git pull --rebase --autostash --ff-only; then
+    if ! display_command_output '' git pull --rebase --autostash --ff-only; then
       log_error 'rebase/autostash 付きの fast-forward pull に失敗しました。'
       while :; do
+        print_blank_line
         log_question '続行方法を選択してください: [r]ebase / [m]erge / [a]bort:'
+        show_input_prompt
         if ! read -r pull_choice; then
           pull_choice=''
         fi
-        log_input "${pull_choice}"
+        print_blank_line
         case "${pull_choice}" in
           [Rr])
-            if git pull --rebase --autostash; then
+            if display_command_output '' git pull --rebase --autostash; then
               break
             fi
             log_error 'rebase pull に失敗しました。'
             safe_exit 1
             ;;
           [Mm])
-            if git pull --autostash; then
+            if display_command_output '' git pull --autostash; then
               break
             fi
             log_error 'merge pull に失敗しました。'
@@ -500,13 +561,14 @@ EOF
       done
     fi
   else
-    if ! git pull --ff-only; then
+    if ! display_command_output '' git pull --ff-only; then
       log_error 'fast-forward pull に失敗しました。'
       safe_exit 1
     fi
   fi
 }
 
+# stash を戻す
 restore_stash_if_needed()
 {
 
@@ -520,8 +582,11 @@ restore_stash_if_needed()
   fi
 }
 
+# ステージング処理
 do_add()
 {
+
+  print_blank_line
 
   if ! display_command_output '' git status -sb; then
     log_error 'git status -sb が失敗しました。'
@@ -553,20 +618,32 @@ do_add()
 
   if [ "${mode}" = 'full' ]; then
     if [ "${diff_status}" -eq 1 ]; then
-      log_info '作業ツリーの変更:'
-      if ! display_command_output '' git diff; then
+      if ! collect_numstat_entries; then
+        local status=$?
+        safe_exit "${status}"
+      fi
+      if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
+        log_info '未ステージの変更があるファイル:'
+        print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
+        print_blank_line
+      fi
+      if ! display_command_output --allow-status-one '' git diff; then
         local status=$?
         safe_exit "${status}"
       fi
     else
-      log_info '未ステージの変更はありません。'
+      log_info '未ステージのファイルはありません。'
     fi
   else
     if [ "${diff_status}" -eq 1 ]; then
-      log_info '未ステージの変更があるファイル:'
-      if ! display_command_output '' git diff --name-only; then
+      if ! collect_numstat_entries; then
         local status=$?
         safe_exit "${status}"
+      fi
+      if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
+        log_info '未ステージの変更があるファイル:'
+        print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
+        print_blank_line
       fi
     else
       log_info '未ステージのファイルはありません。'
@@ -592,16 +669,32 @@ do_add()
   fi
 
   if [ "${mode}" = 'full' ]; then
-    log_info 'ステージ済みの変更:'
-    if ! display_command_output '' git diff --cached; then
+    if ! collect_numstat_entries --cached; then
       local status=$?
       safe_exit "${status}"
     fi
-  else
-    log_info 'ステージ済みのファイル一覧:'
-    if ! display_command_output '' git diff --cached --name-only; then
+    if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
+      log_info 'ステージ済みのファイル一覧:'
+      print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
+      print_blank_line
+    fi
+    log_info 'ステージ済みの差分:'
+    if ! display_command_output --allow-status-one '' git diff --cached; then
       local status=$?
       safe_exit "${status}"
+    fi
+    print_blank_line
+  else
+    if ! collect_numstat_entries --cached; then
+      local status=$?
+      safe_exit "${status}"
+    fi
+    if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
+      log_info 'ステージ済みのファイル一覧:'
+      print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
+      print_blank_line
+    else
+      log_info 'ステージ済みのファイルはありません。'
     fi
   fi
 
@@ -611,17 +704,20 @@ do_add()
   fi
 }
 
+# タグ入力処理
 collect_tags()
 {
 
   tag_list=()
 
   if confirm_decision "${confirm_tag_prompt}" 1 'プッシュ前にタグを追加しますか？'; then
+    print_blank_line
     log_question 'カンマ区切りでタグ名を入力してください (例: tag1, tag2):'
+    show_input_prompt
     if ! IFS= read -r raw_tags; then
       raw_tags=''
     fi
-    log_input "${raw_tags}"
+    print_blank_line
     if [ -n "${raw_tags}" ]; then
       IFS=',' read -r -a split_tags <<<"${raw_tags}"
       local raw_tag
@@ -638,6 +734,7 @@ collect_tags()
   tag_count=${#tag_list[@]}
 }
 
+# コミット実行
 do_commit()
 {
 
@@ -645,8 +742,8 @@ do_commit()
 
   if [ "${use_editor}" -eq 0 ]; then
     log_info 'コミットメッセージのプレビュー:'
-    close_progress_line
-    echo "${commit_msg}"
+    print_multiline_text "${commit_msg}"
+    print_blank_line
   else
     log_info 'コミットメッセージはエディタで編集します。'
   fi
@@ -677,7 +774,7 @@ do_commit()
     set -- "$@" -m "${commit_msg}"
   fi
 
-  if ! "$@"; then
+  if ! display_command_output '' "$@"; then
     local status=$?
     safe_exit "${status}"
   fi
@@ -707,6 +804,7 @@ do_commit()
   fi
 }
 
+# プッシュ前の差分表示
 show_push_preview()
 {
 
@@ -717,47 +815,57 @@ show_push_preview()
     push_diff_target=$(git hash-object -t tree /dev/null)
   fi
 
-  if [ "${mode}" = 'full' ]; then
-    log_info '直前の HEAD との差分:'
-    if ! display_command_output '' git diff --cached "${push_diff_target}"; then
-      local status=$?
-      safe_exit "${status}"
-    fi
-  else
+  if ! collect_numstat_entries "${push_diff_target}" HEAD; then
+    local status=$?
+    safe_exit "${status}"
+  fi
+
+  if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
     log_info '今回のコミットで変更されたファイル:'
-    if ! display_command_output '' git diff --cached --name-only "${push_diff_target}"; then
+    print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
+    print_blank_line
+  else
+    log_info '今回のコミットで変更されたファイルはありません。'
+  fi
+
+  if [ "${mode}" = 'full' ]; then
+    log_info 'コミット差分の詳細:'
+    if ! display_command_output --allow-status-one '' git diff "${push_diff_target}" HEAD; then
       local status=$?
       safe_exit "${status}"
     fi
   fi
 }
 
+# プッシュ直前の同期処理
 pre_push_sync()
 {
 
-  if ! git fetch origin --prune --tags; then
+  if ! display_command_output '' git fetch origin --prune --tags; then
     log_error 'プッシュ前の git fetch origin --prune --tags に失敗しました。'
     safe_exit 1
   fi
 
-  if ! git pull --rebase --autostash --ff-only; then
+  if ! display_command_output '' git pull --rebase --autostash --ff-only; then
     log_error 'プッシュ前の rebase/autostash 付き fast-forward pull に失敗しました。'
     while :; do
-      log_question '続行方法を選択してください: [r]ebase / [m]erge / [a]bort:'
-      if ! read -r push_pull_choice; then
-        push_pull_choice=''
-      fi
-      log_input "${push_pull_choice}"
-      case "${push_pull_choice}" in
+        print_blank_line
+        log_question '続行方法を選択してください: [r]ebase / [m]erge / [a]bort:'
+        show_input_prompt
+        if ! read -r push_pull_choice; then
+          push_pull_choice=''
+        fi
+        print_blank_line
+        case "${push_pull_choice}" in
         [Rr])
-          if git pull --rebase --autostash; then
+          if display_command_output '' git pull --rebase --autostash; then
             break
           fi
           log_error 'rebase pull に失敗しました。'
           safe_exit 1
           ;;
         [Mm])
-          if git pull --autostash; then
+          if display_command_output '' git pull --autostash; then
             break
           fi
           log_error 'merge pull に失敗しました。'
@@ -775,6 +883,7 @@ pre_push_sync()
   fi
 }
 
+# プッシュ処理
 perform_push()
 {
 
@@ -795,12 +904,12 @@ perform_push()
   fi
 
   log_info 'プッシュ中...'
-  if ! "${push_cmd[@]}"; then
+  if ! display_command_output '' "${push_cmd[@]}"; then
     log_error 'git push に失敗しました。'
     safe_exit 1
   fi
 
-  if ! git push --tags; then
+  if ! display_command_output '' git push --tags; then
     log_error 'git push --tags に失敗しました。'
     safe_exit 1
   fi
@@ -809,18 +918,19 @@ perform_push()
 
   if [ "${run_gc}" -eq 1 ]; then
     log_info 'リポジトリのメンテナンスを実行中 (git gc --auto)...'
-    if ! git gc --auto; then
+    if ! display_command_output '' git gc --auto; then
       log_error 'git gc --auto に失敗しました。'
       safe_exit 1
     fi
     log_info 'リポジトリのメンテナンスを実行中 (git maintenance run --auto)...'
-    if ! git maintenance run --auto; then
+    if ! display_command_output '' git maintenance run --auto; then
       log_error 'git maintenance run --auto に失敗しました。'
       safe_exit 1
     fi
   fi
 }
 
+# 最後の後片付け
 finalize_run()
 {
 
@@ -830,6 +940,7 @@ finalize_run()
   cleanup
 }
 
+# メイン処理の入り口
 main()
 {
 
