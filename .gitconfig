@@ -1,3 +1,2 @@
 [alias]
   	easyacp = "!bash \"$HOME/bin/easyacp.sh\" \"$@\""
-  

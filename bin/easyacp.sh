@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 色コード定義
+COLOR_RESET=$'\033[0m'
+COLOR_INFO=$'\033[36m'
+COLOR_WARN=$'\033[33m'
+COLOR_ERROR=$'\033[31m'
+COLOR_OK=$'\033[92m'
+COLOR_QSTN=$'\033[97m'
+COLOR_PROMPT=$'\033[36m'
+COLOR_GREEN=$'\033[32m'
+COLOR_RED=$'\033[31m'
+
 # 実行時の状態を初期化
 initialize_state()
 {
-
   mode='name-only'
   add_mode='all'
   do_rebase=0
@@ -44,50 +54,43 @@ initialize_state()
 
 log_info()
 {
-
-  echo "[INFO] $1"
-  print_blank_line
+  echo "${COLOR_INFO}[INFO] $1${COLOR_RESET}"
+  # print_blank_line
 }
 
 log_warn()
 {
-
-  echo "[WARN] $1"
-  print_blank_line
+  echo "${COLOR_WARN}[WARN] $1${COLOR_RESET}"
+  # print_blank_line
 }
 
 log_error()
 {
-
-  echo "[ERR] $1" >&2
-  print_blank_line
+  echo "${COLOR_ERROR}[ERR] $1${COLOR_RESET}" >&2
+  # print_blank_line
 }
 
 log_question()
 {
-
-  echo "[QSTN] $1"
-  print_blank_line
+  echo "${COLOR_QSTN}[QSTN] $1${COLOR_RESET}"
+  # print_blank_line
 }
 
 log_ok()
 {
-
-  echo "[OK] $1"
-  print_blank_line
+  echo "${COLOR_OK}[OK] $1${COLOR_RESET}"
+  # print_blank_line
 }
 
 # 入力プロンプトを表示
 show_input_prompt()
 {
-
-  echo -n '>>> '
+  echo -n "${COLOR_PROMPT}>>> ${COLOR_RESET}"
 }
 
 # コマンド出力を整形して表示
 display_command_output()
 {
-
   local allow_status_one=0
   if [ "$1" = '--allow-status-one' ]; then
     allow_status_one=1
@@ -119,23 +122,22 @@ display_command_output()
   fi
 
   if [ "${status}" -eq 0 ]; then
-    print_blank_line
+    # print_blank_line
     return 0
   fi
 
   if [ "${status}" -eq 1 ] && [ "${allow_status_one}" -eq 1 ]; then
-    print_blank_line
+    # print_blank_line
     return 0
   fi
 
-  print_blank_line
+  # print_blank_line
   return "${status}"
 }
 
 # 表示系の汎用ヘルパー
 print_plain_line()
 {
-
   if [ $# -eq 0 ]; then
     echo ""
   else
@@ -143,16 +145,14 @@ print_plain_line()
   fi
 }
 
-print_blank_line()
+# print_blank_line()
 {
-
   print_plain_line
 }
 
 # ファイル一覧を番号付きで表示
 print_numbered_entries()
 {
-
   local entries=("$@")
   local index=1
   local entry
@@ -169,14 +169,12 @@ NUMSTAT_ENTRIES=()
 # 複数行のテキストをそのまま出力
 print_multiline_text()
 {
-
   echo "$1"
 }
 
 # git diff --numstat の結果を集計
 collect_numstat_entries()
 {
-
   NUMSTAT_ENTRIES=()
   local output
 
@@ -200,10 +198,10 @@ collect_numstat_entries()
       counts+=("[binary]")
     else
       if [ "${added}" != '0' ]; then
-        counts+=("[+${added}]")
+        counts+=("[${COLOR_GREEN}+${added}${COLOR_RESET}]")
       fi
       if [ "${deleted}" != '0' ]; then
-        counts+=("[-${deleted}]")
+        counts+=("[${COLOR_RED}-${deleted}${COLOR_RESET}]")
       fi
       if [ ${#counts[@]} -eq 0 ]; then
         counts+=("[±0]")
@@ -222,7 +220,6 @@ collect_numstat_entries()
 # ヘルプ表示
 print_usage()
 {
-
   echo "使い方: git easyacp [オプション] \"commit message\""
   echo "利用可能なオプション:"
   echo "  -fd | -fulldiff     ファイル名ではなく差分全文を表示"
@@ -241,14 +238,12 @@ print_usage()
 # フロー案内をまとめて表示
 advance_with_info()
 {
-
   log_info "$1"
 }
 
 # stash を片付ける
 cleanup()
 {
-
   if [ "${stash_created}" -eq 1 ]; then
     if [ "${stash_applied}" -eq 0 ]; then
       if git stash apply "${stash_ref}" >/dev/null 2>&1; then
@@ -262,7 +257,6 @@ cleanup()
 # 終了前の後始末
 safe_exit()
 {
-
   local status=$1
   if [ "${trap_set}" -eq 1 ]; then
     trap - EXIT
@@ -274,7 +268,6 @@ safe_exit()
 # 文字列の前後空白を除去
 trim_spaces()
 {
-
   local value="$1"
   value="${value#${value%%[![:space:]]*}}"
   value="${value%${value##*[![:space:]]}}"
@@ -284,7 +277,6 @@ trim_spaces()
 # Y/n 確認を共通化
 prompt_confirm()
 {
-
   local prompt="$1"
   local default_yes=${2:-1}
   local suffix
@@ -301,14 +293,14 @@ prompt_confirm()
   fi
 
   while :; do
-    print_blank_line
+    # print_blank_line
     log_question "${prompt}${suffix}"
     show_input_prompt
     if ! read -r raw_reply; then
       reply=''
       raw_reply=''
     fi
-    print_blank_line
+    # print_blank_line
     reply="${raw_reply}"
     if [ -z "${reply}" ]; then
       reply="${default_reply}"
@@ -332,7 +324,6 @@ prompt_confirm()
 # 設定値に応じて確認をスキップ
 confirm_decision()
 {
-
   local flag=$1
   local default_yes=$2
   shift 2
@@ -354,7 +345,6 @@ confirm_decision()
 # エイリアス由来の引数重複を除去
 dedupe_alias_args()
 {
-
   local args=("$@")
   local total=${#args[@]}
   if [ "${total}" -gt 0 ] && [ $(( total % 2 )) -eq 0 ]; then
@@ -374,7 +364,6 @@ dedupe_alias_args()
 # コマンドライン引数を解析
 parse_arguments()
 {
-
   set -- "$@"
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -457,7 +446,6 @@ parse_arguments()
 # コミットメッセージを組み立て
 prepare_commit_message()
 {
-
   if [ "${use_editor}" -eq 1 ]; then
     if [ "${message_provided}" -eq 1 ]; then
       log_warn '-v/-vim が指定されたため、渡されたコミットメッセージは破棄されエディタが起動します。'
@@ -483,7 +471,6 @@ prepare_commit_message()
 # 未コミット変更を退避
 create_stash()
 {
-
   if ! stash_output=$(git stash push -k -u -m easyacp-auto 2>&1); then
     log_error "${stash_output}"
     safe_exit 1
@@ -499,7 +486,6 @@ create_stash()
 # 同期処理前の安全確認
 do_checks()
 {
-
   log_info 'リモートと同期中...'
   if ! display_command_output '' git fetch --all --prune --tags; then
     log_error 'git fetch --all --prune --tags に失敗しました。'
@@ -528,13 +514,13 @@ EOF
     if ! display_command_output '' git pull --rebase --autostash --ff-only; then
       log_error 'rebase/autostash 付きの fast-forward pull に失敗しました。'
       while :; do
-        print_blank_line
+        # print_blank_line
         log_question '続行方法を選択してください: [r]ebase / [m]erge / [a]bort:'
         show_input_prompt
         if ! read -r pull_choice; then
           pull_choice=''
         fi
-        print_blank_line
+        # print_blank_line
         case "${pull_choice}" in
           [Rr])
             if display_command_output '' git pull --rebase --autostash; then
@@ -571,7 +557,6 @@ EOF
 # stash を戻す
 restore_stash_if_needed()
 {
-
   if [ "${stash_created}" -eq 1 ] && [ "${stash_applied}" -eq 0 ]; then
     if git stash apply "${stash_ref}" >/dev/null 2>&1; then
       stash_applied=1
@@ -585,8 +570,7 @@ restore_stash_if_needed()
 # ステージング処理
 do_add()
 {
-
-  print_blank_line
+  # print_blank_line
 
   if ! display_command_output '' git status -sb; then
     log_error 'git status -sb が失敗しました。'
@@ -625,7 +609,7 @@ do_add()
       if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
         log_info '未ステージの変更があるファイル:'
         print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
-        print_blank_line
+        # print_blank_line
       fi
       if ! display_command_output --allow-status-one '' git diff; then
         local status=$?
@@ -643,7 +627,7 @@ do_add()
       if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
         log_info '未ステージの変更があるファイル:'
         print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
-        print_blank_line
+        # print_blank_line
       fi
     else
       log_info '未ステージのファイルはありません。'
@@ -676,14 +660,14 @@ do_add()
     if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
       log_info 'ステージ済みのファイル一覧:'
       print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
-      print_blank_line
+      # print_blank_line
     fi
     log_info 'ステージ済みの差分:'
     if ! display_command_output --allow-status-one '' git diff --cached; then
       local status=$?
       safe_exit "${status}"
     fi
-    print_blank_line
+    # print_blank_line
   else
     if ! collect_numstat_entries --cached; then
       local status=$?
@@ -692,7 +676,7 @@ do_add()
     if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
       log_info 'ステージ済みのファイル一覧:'
       print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
-      print_blank_line
+      # print_blank_line
     else
       log_info 'ステージ済みのファイルはありません。'
     fi
@@ -707,17 +691,16 @@ do_add()
 # タグ入力処理
 collect_tags()
 {
-
   tag_list=()
 
   if confirm_decision "${confirm_tag_prompt}" 1 'プッシュ前にタグを追加しますか？'; then
-    print_blank_line
+    # print_blank_line
     log_question 'カンマ区切りでタグ名を入力してください (例: tag1, tag2):'
     show_input_prompt
     if ! IFS= read -r raw_tags; then
       raw_tags=''
     fi
-    print_blank_line
+    # print_blank_line
     if [ -n "${raw_tags}" ]; then
       IFS=',' read -r -a split_tags <<<"${raw_tags}"
       local raw_tag
@@ -737,13 +720,12 @@ collect_tags()
 # コミット実行
 do_commit()
 {
-
   collect_tags
 
   if [ "${use_editor}" -eq 0 ]; then
     log_info 'コミットメッセージのプレビュー:'
     print_multiline_text "${commit_msg}"
-    print_blank_line
+    # print_blank_line
   else
     log_info 'コミットメッセージはエディタで編集します。'
   fi
@@ -807,7 +789,6 @@ do_commit()
 # プッシュ前の差分表示
 show_push_preview()
 {
-
   local push_diff_target
   if [ -n "${prev_head}" ]; then
     push_diff_target="${prev_head}"
@@ -823,7 +804,7 @@ show_push_preview()
   if [ "${#NUMSTAT_ENTRIES[@]}" -gt 0 ]; then
     log_info '今回のコミットで変更されたファイル:'
     print_numbered_entries "${NUMSTAT_ENTRIES[@]}"
-    print_blank_line
+    # print_blank_line
   else
     log_info '今回のコミットで変更されたファイルはありません。'
   fi
@@ -840,7 +821,6 @@ show_push_preview()
 # プッシュ直前の同期処理
 pre_push_sync()
 {
-
   if ! display_command_output '' git fetch origin --prune --tags; then
     log_error 'プッシュ前の git fetch origin --prune --tags に失敗しました。'
     safe_exit 1
@@ -849,13 +829,13 @@ pre_push_sync()
   if ! display_command_output '' git pull --rebase --autostash --ff-only; then
     log_error 'プッシュ前の rebase/autostash 付き fast-forward pull に失敗しました。'
     while :; do
-        print_blank_line
+        # print_blank_line
         log_question '続行方法を選択してください: [r]ebase / [m]erge / [a]bort:'
         show_input_prompt
         if ! read -r push_pull_choice; then
           push_pull_choice=''
         fi
-        print_blank_line
+        # print_blank_line
         case "${push_pull_choice}" in
         [Rr])
           if display_command_output '' git pull --rebase --autostash; then
@@ -886,7 +866,6 @@ pre_push_sync()
 # プッシュ処理
 perform_push()
 {
-
   log_info 'プッシュ前のプレビューを表示します...'
   show_push_preview
 
@@ -933,7 +912,6 @@ perform_push()
 # 最後の後片付け
 finalize_run()
 {
-
   if [ "${trap_set}" -eq 1 ]; then
     trap - EXIT
   fi
@@ -943,7 +921,6 @@ finalize_run()
 # メイン処理の入り口
 main()
 {
-
   initialize_state
   advance_with_info 'EasyACPを開始します...'
   dedupe_alias_args "$@"
