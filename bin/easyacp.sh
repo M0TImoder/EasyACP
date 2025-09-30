@@ -142,7 +142,7 @@ print_plain_line()
   if [ $# -eq 0 ]; then
     echo ""
   else
-    echo "$1"
+    printf '%s\n' "$1"
   fi
 }
 
@@ -466,7 +466,8 @@ prepare_commit_message()
   if [ "${#commit_msgs[@]}" -gt 1 ]; then
     local idx
     for (( idx=1; idx<${#commit_msgs[@]}; idx++ )); do
-      commit_msg="${commit_msg} ${commit_msgs[idx]}"
+      commit_msg+=$'\n\n'
+      commit_msg+="${commit_msgs[idx]}"
     done
   fi
 }
@@ -727,7 +728,14 @@ do_commit()
 
   if [ "${use_editor}" -eq 0 ]; then
     log_info 'コミットメッセージのプレビュー:'
-    print_multiline_text "${commit_msg}"
+    if [ "${#commit_msgs[@]}" -gt 0 ]; then
+      local preview_message
+      for preview_message in "${commit_msgs[@]}"; do
+        print_plain_line "${preview_message}"
+      done
+    else
+      print_multiline_text "${commit_msg}"
+    fi
     # print_blank_line
   else
     log_info 'コミットメッセージはエディタで編集します。'
