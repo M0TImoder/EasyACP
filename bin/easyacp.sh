@@ -170,7 +170,7 @@ NUMSTAT_ENTRIES=()
 # 複数行のテキストをそのまま出力
 print_multiline_text()
 {
-  echo "$1"
+  printf '%s\n'
 }
 
 # git diff --numstat の結果を集計
