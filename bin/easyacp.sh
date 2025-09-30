@@ -51,6 +51,7 @@ initialize_state()
   tag_list=()
   log_verbose=0
   NUMSTAT_ENTRIES=()
+  update_only=0
 }
 
 log_info()
@@ -571,6 +572,22 @@ restore_stash_if_needed()
   fi
 }
 
+# リポジトリを最新化する
+perform_update_only()
+{
+  advance_with_info '未コミットの変更を一時退避します...'
+  create_stash
+
+  advance_with_info 'リモート同期処理を開始します...'
+  do_checks
+  advance_with_info 'リモート同期が完了しました...'
+
+  advance_with_info 'ローカル変更を復元しています...'
+  restore_stash_if_needed
+
+  log_ok 'リポジトリは最新の状態です。'
+}
+
 # ステージング処理
 do_add()
 {
@@ -947,7 +964,12 @@ main()
   if [ "${#DEDUPED_ARGS[@]}" -gt 0 ]; then
     parse_arguments "${DEDUPED_ARGS[@]}"
   else
-    parse_arguments
+    update_only=1
+  fi
+  if [ "${update_only}" -eq 1 ]; then
+    perform_update_only
+    finalize_run
+    return
   fi
   advance_with_info 'コミットメッセージを準備しています...'
   prepare_commit_message
