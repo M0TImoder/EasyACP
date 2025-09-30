@@ -38,6 +38,7 @@ initialize_state()
   trap_set=0
   template_path="${HOME}/.gitmessage"
   commit_msg=''
+  commit_msgs=()
   stash_output=''
   divergence_output=''
   upstream_only='0'
@@ -451,6 +452,7 @@ prepare_commit_message()
       log_warn '-v/-vim が指定されたため、渡されたコミットメッセージは破棄されエディタが起動します。'
     fi
     commit_msg=''
+    commit_msgs=()
     return
   fi
 
@@ -459,11 +461,12 @@ prepare_commit_message()
     safe_exit 1
   fi
 
-  commit_msg="${REMAINING_ARGS[0]}"
-  if [ "${#REMAINING_ARGS[@]}" -gt 1 ]; then
+  commit_msgs=("${REMAINING_ARGS[@]}")
+  commit_msg="${commit_msgs[0]}"
+  if [ "${#commit_msgs[@]}" -gt 1 ]; then
     local idx
-    for (( idx=1; idx<${#REMAINING_ARGS[@]}; idx++ )); do
-      commit_msg="${commit_msg} ${REMAINING_ARGS[idx]}"
+    for (( idx=1; idx<${#commit_msgs[@]}; idx++ )); do
+      commit_msg="${commit_msg} ${commit_msgs[idx]}"
     done
   fi
 }
@@ -753,7 +756,14 @@ do_commit()
     set -- "$@" -t "${template_path}" --verbose
   fi
   if [ "${use_editor}" -eq 0 ]; then
-    set -- "$@" -m "${commit_msg}"
+    if [ "${#commit_msgs[@]}" -gt 0 ]; then
+      local commit_message
+      for commit_message in "${commit_msgs[@]}"; do
+        set -- "$@" -m "${commit_message}"
+      done
+    else
+      set -- "$@" -m "${commit_msg}"
+    fi
   fi
 
   if ! display_command_output '' "$@"; then
@@ -888,9 +898,11 @@ perform_push()
     safe_exit 1
   fi
 
-  if ! display_command_output '' git push --tags; then
-    log_error 'git push --tags に失敗しました。'
-    safe_exit 1
+  if [ "${tag_count}" -gt 0 ]; then
+    if ! display_command_output '' git push --tags; then
+      log_error 'git push --tags に失敗しました。'
+      safe_exit 1
+    fi
   fi
 
   log_ok 'リモートが正常にプッシュされました。'
